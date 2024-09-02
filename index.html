@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>티처블머신 AI 포즈학습으로 마이크로비트 조종하기</title>
+    <!-- TensorFlow.js 및 Teachable Machine 라이브러리 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image"></script>
+</head>
+<body>
+    <h1>티처블머신 AI 포즈학습으로 마이크로비트 조종하기</h1>
+    <button id="connect">Connect to Micro:bit</button>
+    <div id="status">Micro:bit not connected</div>
+    <div id="webcam-container"></div>
+    <div id="label-container"></div>
+
+    <script>
+        let port; // 시리얼 포트 변수
+        let model, webcam, labelContainer, maxPredictions;
+
+        document.getElementById('connect').addEventListener('click', async () => {
+            try {
+                // Web Serial API를 사용하여 마이크로비트 연결
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+
+                document.getElementById('status').innerText = 'Micro:bit connected!';
+                console.log('Micro:bit connected');
+
+                initTeachableMachine(); // Teachable Machine 모델 초기화
+            } catch (error) {
+                console.error('Failed to connect to Micro:bit:', error);
+                document.getElementById('status').innerText = `Error: ${error.message}`;
+            }
+        });
+
+        // Teachable Machine 모델 초기화 및 로드
+        async function initTeachableMachine() {
+            const URL = "https://teachablemachine.withgoogle.com/models/YOUR_MODEL_URL/"; // Teachable Machine에서 생성한 모델 URL로 변경
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            // 모델 로드
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // 웹캠 설정 및 시작
+            webcam = new tmImage.Webcam(200, 200, true);
+            await webcam.setup();
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.appendChild(document.createElement("div"));
+            }
+        }
+
+        // 실시간 예측 루프
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        // 포즈 인식 및 결과 처리
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            let recognizedClass = "";
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const classPrediction = `${prediction[i].className}: ${prediction[i].probability.toFixed(2)}`;
+                labelContainer.childNodes[i].innerHTML = classPrediction;
+
+                if (prediction[i].probability > 0.8) {  // 특정 확률 임계값 (예: 80%)
+                    recognizedClass = prediction[i].className;
+                }
+            }
+
+            // 인식된 포즈가 있을 때 마이크로비트로 전송
+            if (recognizedClass && port) {
+                const writer = port.writable.getWriter();
+                await writer.write(new TextEncoder().encode(recognizedClass));
+                writer.releaseLock();
+                console.log(`Sent to Micro:bit: ${recognizedClass}`);
+            }
+        }
+    </script>
+</body>
+</html>
